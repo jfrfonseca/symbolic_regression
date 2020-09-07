@@ -37,14 +37,14 @@ OPERATION_NODES = [
 
 class Individual(object):
 
-    def __init__(self, environment):
+    def __init__(self, environment, chromossome=None):
         self._env = environment
-        max_validity_attempts = self._env.max_validity_attempts
+        max_validity_attempts = self._env.validity_attempts if (chromossome is None) else 0
         self.validity_attempts = 0
         if max_validity_attempts < 1:
-            self._chromossome = self.create()
+            self._chromossome = self.create(chromossome)
         else:
-            for validity_attempt in range(self._env.max_validity_attempts):
+            for validity_attempt in range(self._env.validity_attempts):
                 self._chromossome = self.create()
                 self.validity_attempts += 1
                 if self.is_valid(): break
@@ -53,13 +53,14 @@ class Individual(object):
     def available_nodes(self, position):
         return [
             node_class for node_class in NODES_LIST
-            if position+node_class.MIN_QUANTITY_OF_TARGETS < self._env.max_size
+            if position+node_class.MIN_QUANTITY_OF_TARGETS < self._env.individual_size
         ]
 
-    def create(self) -> list:
+    def create(self, chromossome=None) -> list:
+        if chromossome is not None: return chromossome
 
         # Created a chromo with random types of nodes.
-        chromo = [choice(self.available_nodes(position))(self, position) for position in range(self._env.max_size)]
+        chromo = [choice(self.available_nodes(position))(self, position) for position in range(self._env.individual_size)]
 
         # If the chromo does not have at least one input node, we add one
         if not any([gene.symbol == '<INPUT>' for gene in chromo]):
@@ -89,25 +90,44 @@ class Individual(object):
                 input_reached = True
         return input_reached
 
-    def output(self) -> float:
-        return next(self.tree()).operate()
+    def output(self, input) -> float:
+        return next(self.tree()).operate(input)
 
-    def print(self, validity_attempts=False, genotype=True, chromossome=True) -> str:
+    def mutate_target(self):
+
+        for gene in self._chromossome:
+            gene.mutate()
+        attempt = 0
+        for attempt in range(self.validity_attempts):
+            if self.is_valid():
+                break
+            else:
+                for gene in self._chromossome:
+                    gene.mutate()
+        assert self.is_valid(), 'FAILURE TO MUTATE TO A VALID INDIVIDUAL IN {} ATTEMPTS!'.format(attempt)
+        self.validity_attempts += attempt
+
+    def mutate_type(self):
+
+        position = randint(0, self._env.individual_size-1)
+        self._chromossome[position] = choice(self.available_nodes(position))(self, position)
+        attempt = 0
+        for attempt in range(self._env.validity_attempts):
+            if self.is_valid():
+                break
+            else:
+                self._chromossome[position] = choice(self.available_nodes(position))(self, position)
+        assert self.is_valid(), 'FAILURE TO MUTATE TO A VALID INDIVIDUAL IN {} ATTEMPTS!'.format(attempt)
+        self.validity_attempts += attempt
+
+    def print(self, genotype=True) -> str:
         if genotype:
-            result = '; '.join([str(gene) for gene in self])
+            result = [str(gene) for gene in self]
         else:
             result = [str(gene) for gene in self.tree()]
-            result = '; '.join(['[FENOTYPE |{}| (^{}) (~{}) (v{})]'.format(
-                                    len(result),
-                                    round(self.output(), self._env.precision),
-                                    round((self._env.output - self.output())**2, self._env.precision),
-                                    self._env.output
-                               )] + result if chromossome else [])
+            result = ['[FENOTYPE |{}| ({})]'.format(len(result), self.validity_attempts)] + result
 
-            if validity_attempts:
-                result = '[ValidityAttempts {}]; '.format(self.validity_attempts) + result
-
-        return result
+        return '; '.join(result)
 
     @property
     def id(self) -> str:
@@ -117,11 +137,9 @@ class Individual(object):
         for gene in self._chromossome:
             yield gene
 
-    def reset_values(self):
-        self._chromossome = [gene.reset_value() for gene in self._chromossome]
-        return self
-
     def __repr__(self): return '<Individual {}>'.format(self.id)
     def __getitem__(self, item) -> Node: return self._chromossome[item]
     def __setitem__(self, key, value) -> None: self._chromossome[key] = value
     def __sizeof__(self) -> int: return len(self._chromossome)
+
+    def copy(self): return Individual(self._env, chromossome=[gene.copy() for gene in self._chromossome])

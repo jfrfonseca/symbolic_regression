@@ -13,6 +13,10 @@ __copyright__   = "Copyright (c) 2020 José F. R. Fonseca"
 
 
 import abc
+from copy import deepcopy
+from random import randint
+
+from numpy import random
 
 
 # ======================================================================================================================
@@ -22,7 +26,6 @@ import abc
 class Node(abc.ABC):
 
     _symbol = '<>'
-    _mutable = True
     _value = None
     MIN_QUANTITY_OF_TARGETS = 0
 
@@ -38,20 +41,24 @@ class Node(abc.ABC):
     @abc.abstractmethod
     def operation(self, *args) -> float: return 0.0
 
-    @abc.abstractmethod
-    def mutation(self) -> ([], float): return [], None
+    def mutation(self) -> list:
+        new_targets = []
+        for target in self._targets:
+            if random.random() < self._env.mutation_target:
+                new_targets.append(randint(self._position+1, self._env.individual_size-1))
+            else:
+                new_targets.append(target)
+        return new_targets
 
     def mutate(self):
-        self._targets, self._value = self.mutation()
+        self._targets = self.mutation()
 
     def targets(self):
         for target_position in self._targets:
             yield self._chromo[target_position]
 
-    def operate(self) -> float:
-        if self._value is None:
-            self._value = self.operation(*[t.operate() for t in self.targets()])
-        return self._value
+    def operate(self, input) -> float:
+        return self.operation(input, *[t.operate(input) for t in self.targets()])
 
     def is_valid(self) -> bool:
         return all([t.symbol not in {'<>', '<EMPTY>'} for t in self.targets()])
@@ -60,12 +67,12 @@ class Node(abc.ABC):
     def position(self) -> int: return self._position
     @property
     def symbol(self) -> str: return self._symbol
-    @property
-    def mutable(self) -> bool: return self._mutable
 
-    def reset_value(self):
-        self._value = None
-        return self
+    def copy(self):
+        other = self.__class__(self._chromo, self._position)
+        other._targets = deepcopy(self._targets)
+        other._value = self._value
+        return other
 
     def __repr__(self):
         return (self.symbol
@@ -79,35 +86,18 @@ class EmptyOperationError(Exception): pass
 class Empty(Node):
 
     _symbol = '<EMPTY>'
-    _mutable = False
     MIN_QUANTITY_OF_TARGETS = 0
 
-    def create(self) -> list:
-        return []
-
-    def operation(self, *args) -> float:
-        raise EmptyOperationError(str(self))
-
-    def mutation(self) -> (list, float): return [], None
-
-    def __repr__(self):
-        return self.symbol.replace('<', '<[{}] '.format(self._position))
+    def create(self) -> list: return []
+    def operation(self, input, *args) -> float: raise EmptyOperationError(str(self))
+    def __repr__(self): return self.symbol.replace('<', '<[{}] '.format(self._position))
 
 
 class Input(Node):
 
     _symbol = '<INPUT>'
-    _mutable = False
     MIN_QUANTITY_OF_TARGETS = 0
 
-    def create(self) -> list:
-        return []
-
-    def operation(self, *args) -> float:
-        return self._env.input
-
-    def mutation(self) -> (list, float):
-        return [], None
-
-    def __repr__(self):
-        return self.symbol.replace('<', '<[{}] '.format(self._position)).replace('>', ' (@{})>'.format(self._env.input))
+    def create(self) -> list: return []
+    def operation(self, input, *args) -> float: return input
+    def __repr__(self): return self.symbol.replace('<', '<[{}] '.format(self._position))
